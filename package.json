@@ -1,0 +1,19 @@
+{
+    "name": "multiplayer-pong",
+    "version": "1.0.0",
+    "description": "A multiplayer pong game built with Javascript and socket.io",
+    "main": "index.js",
+    "scripts": {
+        "start": "node public/script.js",
+        "compile": "tsc",
+        "compile-dev": "tsc --watch",
+        "dev": "node --watch public/script.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "typescript": "^5.3.3"
+    }
+}
