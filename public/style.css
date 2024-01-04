@@ -3,7 +3,6 @@ body {
     background-color: rgb(39, 39, 39);
     display: flex;
     justify-content: center;
-    font-family: 'Courier New', Courier, monospace;
     cursor: none;
     width: 100dvw;
     height: 100dvh;
