@@ -1,172 +1,225 @@
-"use strict";
-const canvas = document.querySelector('canvas');
-const ctx = canvas.getContext('2d');
-let singlePlayer = true; // Set to true for single player mode
-let redScore = 0;
-let greenScore = 0;
-let gameOver = false;
-let winner;
-canvas.width = 500; // px
-canvas.height = 700; // px
-const ballRadius = 5;
-let ballX = canvas.width / 2;
-let ballY = canvas.height / 2;
-let ballSpeedX = 3.5;
-let ballSpeedY = 3.5;
-const paddleWidth = 60;
-const paddleHeight = 10;
-let topPaddleX = canvas.width / 2 - paddleWidth / 2;
-let bottomPaddleX = canvas.width / 2 - paddleWidth / 2;
-// CANVAS
-function drawBall() {
-    ctx.fillStyle = 'white';
-    ctx.beginPath();
-    ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
-    ctx.fill();
+// Canvas Related
+const canvas = document.createElement('canvas')
+const context = canvas.getContext('2d')
+const socket = io('/pong')
+let isReferee = false
+let paddleIndex = 0
+
+let width = 500
+let height = 700
+
+// Paddle
+let paddleHeight = 10
+let paddleWidth = 50
+let paddleDiff = 25
+let paddleX = [225, 225]
+let trajectoryX = [0, 0]
+let playerMoved = false
+
+// Ball
+let ballX = 250
+let ballY = 350
+let ballRadius = 5
+let ballDirection = 1
+
+// Speed
+let speedY = 2
+let speedX = 0
+
+// Score for Both Players
+let score = [0, 0]
+
+// Create Canvas Element
+function createCanvas() {
+    canvas.id = 'canvas'
+    canvas.width = width
+    canvas.height = height
+    document.body.appendChild(canvas)
+    renderCanvas()
 }
-function drawPaddles() {
-    ctx.fillStyle = 'white';
-    // Left paddle
-    ctx.fillRect(topPaddleX, 0, paddleWidth, paddleHeight);
-    // Right paddle (adjust for canvas width)
-    ctx.fillRect(bottomPaddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight);
+
+// Wait for Opponents
+function renderIntro() {
+    // Canvas Background
+    context.fillStyle = 'black'
+    context.fillRect(0, 0, width, height)
+
+    // Intro Text
+    context.fillStyle = 'white'
+    context.font = '32px Courier New'
+    context.fillText('Waiting for opponent...', 20, canvas.height / 2 - 30)
 }
-function drawLine() {
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height / 2);
-    ctx.lineTo(canvas.width, canvas.height / 2);
-    ctx.strokeStyle = 'white';
-    ctx.stroke();
+
+// Render Everything on Canvas
+function renderCanvas() {
+    // Canvas Background
+    context.fillStyle = 'black'
+    context.fillRect(0, 0, width, height)
+
+    // Paddle Color
+    context.fillStyle = 'white'
+
+    // Bottom Paddle
+    context.fillRect(paddleX[0], height - 20, paddleWidth, paddleHeight)
+
+    // Top Paddle
+    context.fillRect(paddleX[1], 10, paddleWidth, paddleHeight)
+
+    // Dashed Center Line
+    context.beginPath()
+    context.setLineDash([4])
+    context.moveTo(0, 350)
+    context.lineTo(500, 350)
+    context.strokeStyle = 'grey'
+    context.stroke()
+
+    // Ball
+    context.beginPath()
+    context.arc(ballX, ballY, ballRadius, 2 * Math.PI, false)
+    context.fillStyle = 'white'
+    context.fill()
+
+    // Score
+    context.font = '32px Courier New'
+    context.fillText(score[0], 20, canvas.height / 2 + 50)
+    context.fillText(score[1], 20, canvas.height / 2 - 30)
 }
-function drawScore() {
-    ctx.font = '16px Courier New';
-    ctx.fillStyle = 'white';
-    if (!gameOver) {
-        ctx.fillText(`RED: ${redScore}`, canvas.width / 2 - 225, 325);
-        ctx.fillText(`GREEN: ${greenScore}`, canvas.width / 2 - 225, canvas.height - 315);
-    }
-    else {
-        ctx.fillText(`Winner: ${winner}, Please refresh to start over`, canvas.width / 2 - 200, canvas.height / 2 - 25);
-    }
+
+// Reset Ball to Center
+function ballReset() {
+    ballX = width / 2
+    ballY = height / 2
+    speedY = 3
+    socket.emit('ballMove', {
+        ballX,
+        ballY,
+        score,
+    })
 }
-function updateBall() {
-    if (gameOver)
-        return;
-    ballX += ballSpeedX;
-    ballY += ballSpeedY;
-    // Bounce off the walls
-    if (ballX + ballRadius > canvas.width || ballX - ballRadius < 0) {
-        ballSpeedX = -ballSpeedX;
+
+// Adjust Ball Movement
+function ballMove() {
+    // Vertical Speed
+    ballY += speedY * ballDirection
+    // Horizontal Speed
+    if (playerMoved) {
+        ballX += speedX
     }
-    if (ballY + ballRadius > canvas.height || ballY - ballRadius < 0) {
-        ballSpeedY = -ballSpeedY;
+    socket.emit('ballMove', {
+        ballX,
+        ballY,
+        score,
+    })
+}
+
+// Determine What Ball Bounces Off, Score Points, Reset Ball
+function ballBoundaries() {
+    // Bounce off Left Wall
+    if (ballX < 0 && speedX < 0) {
+        speedX = -speedX
     }
-    // Check if the player missed the ball
-    if (ballY + ballRadius > canvas.height - paddleHeight) {
-        if (ballX > bottomPaddleX && ballX < bottomPaddleX + paddleWidth) {
-            // Collision detected, bounce the ball
-            ballSpeedY = -ballSpeedY;
-            // Adjust ball speed or angle if necessary
-            increaseSpeedOnCornerHit(ballX, bottomPaddleX);
-        }
-        else {
-            // No collision, reset the ball, update score
-            resetBall();
-            redScore++;
-            if (redScore >= 10) {
-                winner = 'RED';
-                resetGame();
+    // Bounce off Right Wall
+    if (ballX > width && speedX > 0) {
+        speedX = -speedX
+    }
+    // Bounce off player paddle (bottom)
+    if (ballY > height - paddleDiff) {
+        if (ballX >= paddleX[0] && ballX <= paddleX[0] + paddleWidth) {
+            // Add Speed on Hit
+            if (playerMoved) {
+                speedY += 1
+                // Max Speed
+                if (speedY > 5) {
+                    speedY = 5
+                }
             }
-            //set ball direction depending on who scores
-            ballSpeedY = Math.abs(ballSpeedY);
+            ballDirection = -ballDirection
+            trajectoryX[0] = ballX - (paddleX[0] + paddleDiff)
+            speedX = trajectoryX[0] * 0.3
+        } else {
+            // Reset Ball, add to Computer Score
+            ballReset()
+            score[1]++
         }
     }
-    // Check if the computer or other player missed the ball
-    if (ballY - ballRadius < paddleHeight) {
-        if (ballX > topPaddleX && ballX < topPaddleX + paddleWidth) {
-            // Collision detected, bounce the ball
-            ballSpeedY = -ballSpeedY;
-            // Adjust ball speed or angle if necessary
-            increaseSpeedOnCornerHit(ballX, topPaddleX);
-        }
-        else {
-            // missed, reset the ball, update score
-            resetBall();
-            greenScore++;
-            if (greenScore >= 10) {
-                winner = 'GREEN';
-                resetGame();
+    // Bounce off computer paddle (top)
+    if (ballY < paddleDiff) {
+        if (ballX >= paddleX[1] && ballX <= paddleX[1] + paddleWidth) {
+            // Add Speed on Hit
+            if (playerMoved) {
+                speedY += 1
+                // Max Speed
+                if (speedY > 5) {
+                    speedY = 5
+                }
             }
-            //set ball direction depending on who scores
-            ballSpeedY = -Math.abs(ballSpeedY);
-        }
-    }
-    function increaseSpeedOnCornerHit(ballX, paddleX) {
-        const leftEdge = paddleX;
-        const rightEdge = paddleX + paddleWidth;
-        const isCornerHit = ballX < leftEdge + 20 || ballX > rightEdge - 20;
-        if (isCornerHit) {
-            // Increase speed by a small factor
-            paddleX *= 1.1;
-            ballSpeedX *= 1.1;
-            ballSpeedY *= 1.1;
+            ballDirection = -ballDirection
+            trajectoryX[1] = ballX - (paddleX[1] + paddleDiff)
+            speedX = trajectoryX[1] * 0.3
+        } else {
+            ballReset()
+            score[0]++
         }
     }
 }
-function resetBall() {
-    ballX = canvas.width / 2;
-    ballY = canvas.height / 2;
-    ballSpeedX = 3.5;
-    ballSpeedY = 3.5;
-    gameOver = redScore === 10 || greenScore === 10;
-}
-function resetGame() {
-    gameOver = true;
-    redScore = 0;
-    greenScore = 0;
-}
-// CONTROL
-document.addEventListener('keydown', keyControl);
-function keyControl(event) {
-    switch (event.key) {
-        case 'ArrowLeft':
-            bottomPaddleX -= 15; // Move left
-            break;
-        case 'ArrowRight':
-            bottomPaddleX += 15; // Move right
-            break;
-    }
-}
-document.addEventListener('mousemove', mouseControl);
-function mouseControl(event) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left; // Get mouse position relative to canvas
-    bottomPaddleX = mouseX - paddleWidth / 2; // Center bottom paddle under mouse
-    // Keep bottom paddle within canvas boundaries
-    bottomPaddleX = Math.max(0, Math.min(bottomPaddleX, canvas.width - paddleWidth));
-}
-function controlSinglePlayer() {
-    const topPaddleCenterX = topPaddleX + paddleWidth / 2;
-    // Move paddle based on ball's position
-    if (ballX < topPaddleCenterX - 10) {
-        topPaddleX -= 3.9;
-    }
-    else if (ballX > topPaddleCenterX + 10) {
-        topPaddleX += 3.9;
-    }
-}
-//ANIMATE
+
+// Called Every Frame
 function animate() {
-    requestAnimationFrame(animate);
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas before redrawing
-    drawBall();
-    drawPaddles();
-    drawLine();
-    updateBall();
-    drawScore();
-    singlePlayer && controlSinglePlayer();
-    // Update paddle positions
-    topPaddleX = Math.max(0, Math.min(topPaddleX, canvas.width - paddleWidth));
-    bottomPaddleX = Math.max(0, Math.min(bottomPaddleX, canvas.width - paddleWidth));
+    if (isReferee) {
+        ballMove()
+        ballBoundaries()
+    }
+    renderCanvas()
+    window.requestAnimationFrame(animate)
 }
-animate();
+
+// Load Game, Reset Everything
+function loadGame() {
+    createCanvas()
+    renderIntro()
+    socket.emit('ready')
+}
+
+function startGame() {
+    paddleIndex = isReferee ? 0 : 1
+    window.requestAnimationFrame(animate)
+    canvas.addEventListener('mousemove', (e) => {
+        playerMoved = true
+        paddleX[paddleIndex] = e.offsetX
+        if (paddleX[paddleIndex] < 0) {
+            paddleX[paddleIndex] = 0
+        }
+        if (paddleX[paddleIndex] > width - paddleWidth) {
+            paddleX[paddleIndex] = width - paddleWidth
+        }
+        socket.emit('paddleMove', {
+            xPosition: paddleX[paddleIndex],
+        })
+        // Hide Cursor
+        canvas.style.cursor = 'none'
+    })
+}
+
+// On Load
+loadGame()
+
+socket.on('connect', () => {
+    console.log('Connected as...', socket.id)
+})
+
+socket.on('startGame', (refereeId) => {
+    console.log('Referee is', refereeId)
+
+    isReferee = socket.id === refereeId
+    startGame()
+})
+
+socket.on('paddleMove', (paddleData) => {
+    // Toggle 1 into 0, and 0 into 1
+    const opponentPaddleIndex = 1 - paddleIndex
+    return (paddleX[opponentPaddleIndex] = paddleData.xPosition)
+})
+
+socket.on('ballMove', (ballData) => {
+    return ({ ballX, ballY, score } = ballData)
+})
